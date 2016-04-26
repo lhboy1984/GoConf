@@ -4,7 +4,8 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"path/filepath"
+	"reflect"
+	"strings"
 
 	"github.com/bitly/go-simplejson"
 	"github.com/yuin/gopher-lua"
@@ -83,15 +84,16 @@ func jsonReadFromArray(jdata *simplejson.Json) ([][]string, error) {
 	if arr, err := jdata.Array(); err == nil {
 		header := map[string]int{}
 		for _, v := range arr {
-			if m, err := v.(*simplejson.Json).Map(); err == nil {
-				for hk, _ := range m {
+			switch v.(type) {
+			case map[string]interface{}:
+				for hk, _ := range v.(map[string]interface{}) {
 					if _, ok := header[hk]; !ok {
 						index := len(header)
 						header[hk] = index
 					}
 				}
-			} else {
-				return nil, err
+			default:
+				return nil, errors.New("not support json format")
 			}
 		}
 
@@ -103,7 +105,7 @@ func jsonReadFromArray(jdata *simplejson.Json) ([][]string, error) {
 
 		for _, v := range arr {
 			row := make([]string, len(header))
-			m, _ := v.(*simplejson.Json).Map()
+			m, _ := v.(map[string]interface{})
 			for kk, vv := range m {
 				row[header[kk]] = fmt.Sprint(vv)
 			}
@@ -182,20 +184,20 @@ func (helper *JsonHelper) ReadArray() ([][]string, error) {
 }
 
 func (helper *JsonHelper) WriteArray(values [][]string) error {
-	basename := filepath.Base(helper.name)
-	basename = basename[0 : len(basename)-5]
-
-	f, err := os.OpenFile(helper.name, os.O_WRONLY|os.O_CREATE, os.ModePerm)
+	f, err := os.OpenFile(helper.name, os.O_TRUNC|os.O_WRONLY|os.O_CREATE, os.ModePerm)
 	if err != nil {
 		return err
 	}
 	defer f.Close()
-	f.WriteString(basename + "[")
+	f.WriteString("[")
 
 	for i := 1; i < len(values); i++ {
+		if len(values[i]) == 0 {
+			continue
+		}
 		f.WriteString("{")
 		for j := 0; j < len(values[0]) && j < len(values[i]); j++ {
-			f.WriteString(values[0][j] + ":" + values[i][j])
+			f.WriteString("\"" + values[0][j] + "\":\"" + strings.Replace(values[i][j], "\"", "\\\"", -1) + "\"")
 			if j != len(values[i])-1 {
 				f.WriteString(",")
 			}
@@ -212,52 +214,105 @@ func (helper *JsonHelper) WriteArray(values [][]string) error {
 	return nil
 }
 
-func (helper *JsonHelper) ReadMap(key string) (map[string]map[string]interface{}, error) {
-	panic("lua not support readmap")
+func (helper *JsonHelper) ReadMap(key string) (interface{}, error) {
+	f, err := os.OpenFile(helper.name, os.O_RDONLY, os.ModePerm)
+	if err != nil {
+		return nil, err
+	}
+	jdata, err := simplejson.NewFromReader(f)
+	if err != nil {
+		return nil, err
+	}
+
+	return jdata.Interface(), nil
 }
 
-func (helper *JsonHelper) WriteMap(values map[string]map[string]interface{}) error {
-	basename := filepath.Base(helper.name)
-	basename = basename[0 : len(basename)-4]
+func interfaceToJsonFile(w *os.File, v interface{}) {
+	t := reflect.TypeOf(v)
 
-	f, err := os.OpenFile(helper.name, os.O_WRONLY|os.O_CREATE, os.ModePerm)
+	switch t.Kind() {
+	case reflect.Bool:
+		fallthrough
+	case reflect.Int:
+		fallthrough
+	case reflect.Int8:
+		fallthrough
+	case reflect.Int16:
+		fallthrough
+	case reflect.Int32:
+		fallthrough
+	case reflect.Int64:
+		fallthrough
+	case reflect.Float32:
+		fallthrough
+	case reflect.Float64:
+		w.Write([]byte(fmt.Sprint(v)))
+	case reflect.String:
+		w.Write([]byte("\"" + fmt.Sprint(v) + "\""))
+	case reflect.Array:
+		fallthrough
+	case reflect.Slice:
+		a, ok := v.([]interface{})
+		if !ok {
+			panic(t.String() + " not supported")
+		}
+
+		w.WriteString("[")
+		for _, vv := range a {
+			interfaceToJsonFile(w, vv)
+			w.WriteString(",")
+		}
+		w.Seek(-1, 1)
+		w.WriteString("]")
+	case reflect.Map:
+		m, ok := v.(map[string]interface{})
+		if !ok {
+			panic(t.String() + " not supported")
+		}
+
+		w.WriteString("{")
+		for kk, vv := range m {
+			w.WriteString("\"" + kk + "\":")
+			interfaceToJsonFile(w, vv)
+			w.WriteString(",")
+		}
+		w.Seek(-1, 1)
+		w.WriteString("}")
+	default:
+		fmt.Println("v type of kind is ", t.Kind(), "not supported")
+	}
+}
+
+func (helper *JsonHelper) WriteMap(values interface{}) error {
+	f, err := os.OpenFile(helper.name, os.O_TRUNC|os.O_WRONLY|os.O_CREATE, os.ModePerm)
 	if err != nil {
 		return err
 	}
 	defer f.Close()
-	f.WriteString(basename + "={\n")
-	for k, v := range values {
-		f.WriteString("\t" + k + "={\n")
-		for kk, vv := range v {
-			f.WriteString("\t\t" + kk + "=")
-			f.WriteString(fmt.Sprint(vv))
-			f.WriteString(",\n")
-		}
-		f.WriteString("\t},\n")
-	}
+	interfaceToJsonFile(f, values)
 
 	return nil
 }
 
 func (helper *JsonHelper) WriteMapString(values map[string]map[string]interface{}) error {
-	basename := filepath.Base(helper.name)
-	basename = basename[0 : len(basename)-4]
-
-	f, err := os.OpenFile(helper.name, os.O_WRONLY|os.O_CREATE, os.ModePerm)
+	f, err := os.OpenFile(helper.name, os.O_TRUNC|os.O_WRONLY|os.O_CREATE, os.ModePerm)
 	if err != nil {
 		return err
 	}
 	defer f.Close()
-	f.WriteString(basename + "={\n")
+	f.WriteString("{")
 	for k, v := range values {
-		f.WriteString("\t" + k + "={\n")
+		f.WriteString("\"" + k + "\":{")
 		for kk, vv := range v {
-			f.WriteString("\t\t" + kk + "=")
-			f.WriteString(fmt.Sprint(vv))
-			f.WriteString(",\n")
+			f.WriteString("\"" + kk + "\":\"")
+			f.WriteString(strings.Replace(fmt.Sprint(vv), "\"", "\\\"", -1))
+			f.WriteString("\",")
 		}
-		f.WriteString("\t},\n")
+		f.Seek(-1, 1)
+		f.WriteString("},")
 	}
+	f.Seek(-1, 1)
+	f.WriteString("}")
 
 	return nil
 }

@@ -28,7 +28,7 @@ func NewXlsxHelper(name string) (Helper, error) {
 	return x, err
 }
 
-func (x *XlsxHelper) ReadMap(key string) (map[string]map[string]string, error) {
+func (x *XlsxHelper) ReadMap(key string) (interface{}, error) {
 	if s, ok := x.file.Sheet[_sheet]; ok {
 		header, err := x.HeaderIndex()
 		if err != nil {
@@ -36,10 +36,13 @@ func (x *XlsxHelper) ReadMap(key string) (map[string]map[string]string, error) {
 		}
 
 		if kindex, exist := header[key]; exist {
-			result := make(map[string]map[string]string)
+			result := make(map[string]map[string]interface{})
 			for i := 1; i < len(s.Rows); i++ {
+				if kindex >= len(s.Rows[i].Cells) {
+					continue
+				}
 				kval := s.Rows[i].Cells[kindex].String()
-				result[kval] = make(map[string]string)
+				result[kval] = make(map[string]interface{})
 
 				for j := 0; j < len(s.Rows[i].Cells); j++ {
 					if j != kindex {
@@ -54,6 +57,14 @@ func (x *XlsxHelper) ReadMap(key string) (map[string]map[string]string, error) {
 	} else {
 		return nil, errors.New("sheet: " + _sheet + " not exists")
 	}
+}
+
+func (x *XlsxHelper) WriteMap(values interface{}) error {
+	panic("xlsx not supported writemap")
+}
+
+func (x *XlsxHelper) WriteMapString(values map[string]map[string]interface{}) error {
+	panic("xlsx not supported WriteMapString")
 }
 
 func (x *XlsxHelper) ReadArray() ([][]string, error) {
