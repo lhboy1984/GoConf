@@ -1,5 +1,5 @@
 # GoConf
-配置格式转换工具，支持xlxs,csv,lua,json等的相互转换
+配置格式转换工具，支持xlxs,csv,lua,json等的相互转换  
 ## 功能说明
 * xlsx与csv之间的相互转换，必须指定xlsx的sheetname
 * json与lua之间的相互转换，lua的table不能混合保护数组和键值对
